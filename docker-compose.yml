@@ -1,0 +1,25 @@
+version: "2"
+services:
+  ldap:
+    image: marcgc/ldapserver19:latest
+    container_name: ldapserver
+    hostname: ldapserver
+    ports: 
+      - "389:389"
+    networks:
+     - ldapnet
+  ssh:
+    image: marcgc/ssh19:base
+    container_name: ssh
+    hostname: ssh
+    volumes:
+      - "homes:/tmp/home"
+    ports:
+      - "2022:22"
+    networks:
+     - ldapnet
+    privileged: true
+networks:
+  ldapnet:
+volumes:
+  homes:
