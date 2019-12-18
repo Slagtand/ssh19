@@ -131,8 +131,155 @@ També obre un pid per cada configuració oberta i es troba a `/var/run/sshd.pid
   UsePam # Fer servir pam
   ```
 
+* En el cas de que coincideixin 2 configuracions de host i user, aplica la que troba primer.
 
+* Quan al `Match` s'especifica un `host` es refereix al **host client** que s'està connectant. Quan s'especifica un `user` es refereix al **user local** del servidor **destí**.
 
+```bash
+# sshd_config
+Match Host 172.19.0.1
+        banner /etc/banner
 
+Match user local2
+        banner /etc/banner2
+```
 
+* Reload del servei
+  
+  ```bash
+  kill -1 <num-servicio>
+  ```
 
+### Restriccions
+
+Existeixen múltiples mecanismes de resitrcció per l'accés ssh. Alguns d'ells són globals per als serveis de xarxa i altres específics de sshd.
+
+* Configuració del servidor sshd.
+
+* Configuració de regles de PAM.
+
+* Utilitzar TCP Wrappers com els fitxers host.allow i host.deny de la configuració global del sistema.
+
+* Creació de Firewalls amb iptables.
+
+#### Servidor sshd
+
+Utilitza les següents opcions al fitxer `sshd_config`:
+
+* `AllowUsers`: Users vàlids.
+
+* `AllowGroups`: Grups vàlids
+
+* `DenyUsers`: Users invàlids.
+
+* `DenyGroups`: Grups invàlids.
+
+Aquestes opcions tenen un ordre d'aplicar-se, sent l'anterior més important.
+
+* `DenyUsers - AllowUsers - DenyGroups - AllowGroups`
+
+Totes aquestes opcions van seguides d'una llista d'usuaris/grups separats per un espai. Sol els noms estàn permesos, si el patró forma `user@host` farà match amb un usuari d'un host determinat.
+
+```bash
+AllowUsers pere marta
+AllowUsers pere@pc01.edt.org marta jordi@m06.cat
+```
+
+#### PAM
+
+##### Pam_access
+
+Amb el mòdul de pam `pam_access.so` es pot restringir l'accés modificant el fitxer `access.conf`.
+
+`/etc/pam.d/sshd`
+
+```bash
+#%PAM-1.0
+auth       substack     password-auth
+auth       include      postlogin
+account    required     pam_sepermit.so
+account    required     pam_nologin.so
+account    required     pam_access.so accessfile=/etc/security/access.conf
+account    include      password-auth
+password   include      password-auth
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+# pam_selinux.so open should only be followed by sessions to be executed in the user context
+session    required     pam_selinux.so open env_params
+session    required     pam_namespace.so
+session    optional     pam_keyinit.so force revoke
+session    include      password-auth
+session    include      postlogin 
+```
+
+`/etc/security/access.conf`
+
+```bash
+# All other users should be denied to get access from all sources.
+#- : ALL : ALL
+# denegar a local2 el aceso a todo
+- : local2 : ALL
+```
+
+Alguns exemples d'`access.conf`
+
+```bash
+# permiso : usuario/s : servicio/s : host
++ : root : crond :0 tty1 tty2 tty3 tty4 tty5 tty6
++ : root : 192.168.200.1 192.168.200.4 192.168.200.9
++ : root : 127.0.0.1
+#El usuario root debería tener acceso desde la red 192.168.201. donde el término se evaluará mediante la coincidencia de cadenas. Pero podría ser mejor usar network / netmask en su lugar. El mismo significado de 192.168.201. es 192.168.201.0/24 o 192.168.201.0/255.255.255.0.
++ : root : 192.168.201.
++ : root : foo1.bar.org foo2.bar.org
+- : root : ALL
+# Los usuarios y los miembros de los administradores de netgroup deben tener acceso a todas las fuentes. Esto solo funcionará si el servicio netgroup está disponible.
++ : @admins foo : ALL
+# User john and foo should get access from IPv6 host address.
++ : john foo : 2001:db8:0:101::1
+- : ALL : ALL 
+```
+
+##### Pam_listfile
+
+Amb el mòdul `pam_listfile.so` es pot restringir o donar accés a diferents usuaris.
+
+```bash
+pam_listfile.so item=[tty|user|rhost|ruser|group|shell]
+                       sense=[allow|deny] file=/path/filename
+                       onerr=[succeed|fail] [apply=[user|@group]] [quiet]
+```
+
+Al fitxer `sshd` de pam especifiquem quin tipus de dades trobarà al fitxer que li especifiquem a la ruta.
+
+* `item`: tipus de dada que trobarà
+
+* `sense`: què farà
+
+* `file`: path del fitxer
+
+```bash
+#%PAM-1.0
+auth       substack     password-auth
+auth       include      postlogin
+account    required     pam_sepermit.so
+account    required     pam_nologin.so
+account    required     pam_listfile.so  item=user sense=allow file=/etc/security/users.conf
+account    include      password-auth
+password   include      password-auth
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+# pam_selinux.so open should only be followed by sessions to be executed in the user context
+session    required     pam_selinux.so open env_params
+session    required     pam_namespace.so
+session    optional     pam_keyinit.so force revoke
+session    include      password-auth
+session    include      postlogin 
+```
+
+`/etc/security/users.conf`
+
+```bash
+
+```
